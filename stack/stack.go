@@ -1,5 +1,20 @@
 // Package stack implements a LIFO container base on slice.
+// For example:
+/*	s := stack.New(10)
+	for i:= 0; i != 100; i++{
+		s.Push(i)
+	}
+	Println(s)
+	for s.Len() > 0{
+		Println(s.Pop().(int))
+	}
+	Println(s)
+ */
 package stack
+
+import (
+	"fmt"
+)
 
 // Stack represents a slice stack.
 type Stack struct{
@@ -9,7 +24,7 @@ type Stack struct{
 
 // create a stack start with n capacity.
 func New(n int)(r *Stack){
-	r = Stack{make([]interface{},n)}
+	r = &Stack{make([]interface{},0,n)}
 	return
 }
 
@@ -21,7 +36,7 @@ func (s Stack) Len() int {
 // get the first refer value or nil.
 func (s *Stack) Top()(r interface{}){
 	if(s.Len() > 0){
-		 r = s[s.Len() - 1]
+		 r = s.s[s.Len() - 1]
 	} else{
 		r = nil
 	}
@@ -30,7 +45,7 @@ func (s *Stack) Top()(r interface{}){
 
 // Pop returns the top element or nil,if not nil,will delete the element.
 func (s *Stack) Pop()(r interface{}){
-	if(s.Len() > 0){
+	if(s.Len() <= 0){
 		return nil
 	}else{
 		r = s.s[s.Len() - 1]
@@ -41,8 +56,10 @@ func (s *Stack) Pop()(r interface{}){
 
 // Push a new element at the top of stack s.
 func (s *Stack) Push(i interface{}){
-	append(s.s,i)
+	s.s = append(s.s,i)
 }
 
-
+func (s Stack)String()string{
+	return fmt.Sprintf("%q",s.s)
+}
 
