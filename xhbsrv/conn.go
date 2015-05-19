@@ -2,6 +2,7 @@ package xhbsrv
 
 import (
 	//	"errors"
+	//	. "fmt"
 	"io"
 	"net"
 	"sync"
@@ -21,7 +22,9 @@ type xhbconn struct {
 func (c *xhbconn) close(err error) {
 	c.clsonce.Do(func() {
 		addr := c.conn.RemoteAddr()
-		c.srv.delconn(c.connid)
+		if err != ErrClosedSelf {
+			c.srv.delmap(c.connid)
+		}
 		close(c.stop)
 		c.conn.Close()
 		c.srv.cb.OnConnClosed(addr, c.connid, err)
@@ -40,8 +43,10 @@ func (c *xhbconn) send(buff []byte) error {
 func handleconnrecv(c *xhbconn) {
 	addr := c.conn.RemoteAddr()
 	var errcb error = nil
-	defer c.close(errcb)
-	buff := make([]byte, c.srv.PackMaxLen)
+	defer func() {
+		c.close(errcb)
+	}()
+	buff := make([]byte, c.srv.PackMaxLen*5)
 	datalen := 0
 
 	//	timeoutcount := 0
@@ -58,9 +63,7 @@ func handleconnrecv(c *xhbconn) {
 			n, e := c.conn.Read(buff[datalen:])
 
 			if e != nil {
-				if e == io.EOF {
-					errcb = ErrClosedActiveByPeer
-				} else if neterr, ok := e.(net.Error); ok && neterr.Timeout() {
+				if neterr, ok := e.(net.Error); ok && neterr.Timeout() {
 					//		timeoutcount++
 					//				if timeoutcount > timeoutmax {
 					errcb = ErrClosedTimeOut
@@ -74,7 +77,6 @@ func handleconnrecv(c *xhbconn) {
 				return
 			}
 			//		timeoutcount = 0
-
 			datalen += n
 			databeg := 0
 			dataend := datalen
@@ -82,7 +84,7 @@ func handleconnrecv(c *xhbconn) {
 			for {
 				pack, e := c.srv.netunpack(buff[databeg:dataend])
 				if e != nil {
-					errcb = ErrClosedTimeOut
+					errcb = e
 					return
 				}
 				if pack == nil {
@@ -97,7 +99,7 @@ func handleconnrecv(c *xhbconn) {
 					}
 				}
 			}
-			if databeg != 0 {
+			if datalen != 0 && databeg != 0 {
 				copy(buff, buff[databeg:dataend])
 			}
 		}
@@ -107,7 +109,10 @@ func handleconnrecv(c *xhbconn) {
 
 func handleconnsend(c *xhbconn) {
 	var errcb error = nil
-	defer c.close(errcb)
+	defer func() {
+		c.close(errcb)
+	}()
+	//	defer c.close(errcb)
 
 	for {
 		select {

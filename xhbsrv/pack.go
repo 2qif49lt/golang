@@ -7,9 +7,11 @@ import (
 // 拆包
 
 // size类型固定为4字节
+const sizebyte int = 4
+const sizeheader int = 8
 
 func (s *Srv) netunpack(buff []byte) ([]byte, error) {
-	const sizebyte int = 4
+
 	if len(buff) < sizebyte+s.PackSizePos {
 		return nil, nil
 	}
@@ -25,4 +27,17 @@ func (s *Srv) netunpack(buff []byte) ([]byte, error) {
 	copy(retbyte, buff[:msgsize])
 
 	return retbyte, nil
+}
+
+func (s *Srv) netpack(cmd int, body []byte) ([]byte, error) {
+	if sizeheader+len(body) > s.PackMaxLen {
+		return nil, ErrSizeBodyTooLong
+	}
+
+	buff := make([]byte, sizeheader+len(body))
+	phead := (*cmdheader)(unsafe.Pointer(&buff[0]))
+	phead.cmd = 1
+	phead.size = uint32(sizeheader + len(body))
+	copy(buff[sizeheader:], body)
+	return buff[:phead.size], nil
 }

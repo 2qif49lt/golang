@@ -65,11 +65,6 @@ func (s *Srv) run() {
 			conn.Close()
 			s.cb.OnConnClosed(connaddr, connid, ErrClosedSrvFull)
 		} else {
-			if s.cb.OnNewConn(connaddr, connid) == false {
-				conn.Close()
-				continue
-			}
-
 			newconn := &xhbconn{
 				conn,
 				connid,
@@ -79,6 +74,12 @@ func (s *Srv) run() {
 				&sync.Once{},
 			}
 			s.addmap(connid, newconn)
+
+			if s.cb.OnNewConn(connaddr, connid) == false {
+				conn.Close()
+				s.delmap(connid)
+				continue
+			}
 
 			go handleconnrecv(newconn)
 			go handleconnsend(newconn)
@@ -128,10 +129,9 @@ func (s *Srv) addmap(connid int, c *xhbconn) {
 	defer s.numlock.Unlock()
 	s.connmap[connid] = c
 }
-func (s *Srv) delconn(connid int) {
+func (s *Srv) delmap(connid int) {
 	s.numlock.Lock()
 	defer s.numlock.Unlock()
-
 	if _, exist := s.connmap[connid]; exist {
 		delete(s.connmap, connid)
 	}
@@ -146,6 +146,7 @@ func (s *Srv) CloseConn(connid int) {
 	defer s.numlock.Unlock()
 
 	if conn, exist := s.connmap[connid]; exist {
+		delete(s.connmap, connid)
 		conn.close(ErrClosedSelf)
 	}
 }
@@ -160,6 +161,14 @@ func (s *Srv) Addr(connid int) net.Addr {
 	}
 }
 
+func (s *Srv) SendCmd(connid int, cmd int, body []byte) error {
+	msg, err := s.netpack(cmd, body)
+	if err != nil {
+		return err
+	}
+
+	return s.Send(connid, msg)
+}
 func (s *Srv) Send(connid int, data []byte) error {
 	s.numlock.Lock()
 	conn, exist := s.connmap[connid]
@@ -204,10 +213,26 @@ func (s *Srv) Connect(addr string, timeout time.Duration) (int, error) {
 
 	go func(addr net.Addr, timeout time.Duration, connid int) {
 		conn, err := net.DialTimeout("tcp", addr.String(), timeout)
-		if err != nil {
+		if err == nil {
 			s.attach(conn, connid)
 		}
 		s.cb.OnConnectRemote(addr, connid, err)
 	}(tcpaddr, timeout, connid)
 	return connid, nil
+}
+
+// 阻塞,不会得到回调
+func (s *Srv) ConnectBlock(addr string, timeout time.Duration) (int, error) {
+	_, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	connid := s.incrconnid()
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err == nil {
+		s.attach(conn, connid)
+		return connid, nil
+	}
+
+	return 0, err
 }
