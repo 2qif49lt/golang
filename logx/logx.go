@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -32,6 +33,12 @@ const (
 	Lerror
 	Lpanic
 	Lfatal
+	Lmax
+)
+
+const (
+	defmaxfilesize  = 1024 * 1024 * 10
+	defmaxfilecount = 10
 )
 
 var levels = []string{
@@ -48,12 +55,105 @@ var levels = []string{
 // the Writer's Write method.  A Logger can be used simultaneously from
 // multiple goroutines; it guarantees to serialize access to the Writer.
 type Logger struct {
-	mu     sync.Mutex // ensures atomic writes; protects the following fields
-	prefix string     // prefix to write at beginning of each line
-	flag   int        // properties
-	out    io.Writer  // destination for output
-	buf    []byte     // for accumulating text to write
-	Level  int
+	mu       sync.Mutex // ensures atomic writes; protects the following fields
+	prefix   string     // prefix to write at beginning of each line
+	flag     int        // properties
+	out      io.Writer  // destination for output
+	buf      []byte     // for accumulating text to write
+	level    int
+	bmulti   bool     // 是否是环保模式
+	fcount   int      // 文件个数
+	fmaxsize int      // 最大文件大小
+	file     []string // 文件列表
+	folder   string
+	name     string
+}
+
+func Newx(folder string, name string, lvl int) *Logger {
+	l := &Logger{
+		out:      nil,
+		flag:     Ldefault,
+		level:    lvl,
+		bmulti:   true,
+		fcount:   defmaxfilecount,
+		fmaxsize: defmaxfilesize,
+		folder:   folder,
+		name:     name,
+	}
+	wrter := l.createIo()
+	if wrter == nil {
+		return nil
+	}
+	l.out = wrter
+	return l
+}
+
+func (l *Logger) Log(lvl int, format string, v ...interface{}) {
+	l.Output(lvl, fmt.Sprintf(format, v...))
+}
+func Log(lvl int, format string, v ...interface{}) {
+	std.Output(lvl, fmt.Sprintf(format, v...))
+}
+func getProcAbsDir() (string, error) {
+	abs, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return "", nil
+	}
+	Println(abs)
+	return filepath.Dir(abs), nil
+}
+func isPathExist(path string) bool {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+func getTimeStr() string {
+	t := time.Now()
+	year, month, day := t.Date()
+	hour, minute, second := t.Clock()
+	str := fmt.Sprintf("%04d%02d%02d%02d%02d%02d", year, month, day, hour, minute, second)
+	Println(str)
+	return str
+}
+func (l *Logger) createIo() io.Writer {
+	procfolder, err := getProcAbsDir()
+	if err != nil {
+		return nil
+	}
+	timestr := getTimeStr()
+
+	logfolder := fmt.Sprintf("%s/%s/%s", procfolder, l.folder, timestr)
+
+	if isPathExist(logfolder) == false {
+		if os.MkdirAll(logfolder, os.ModeDir) != nil {
+			return nil
+		}
+	}
+
+	fileext := ""
+	filename := l.name
+	extdotindex := strings.LastIndex(l.name, ".")
+	if extdotindex != -1 {
+		fileext = l.name[extdotindex:]
+		filename = l.name[:extdotindex]
+	}
+
+	logfilename := fmt.Sprintf("%s/%s-%s%s", logfolder, filename, timestr, fileext)
+
+	file, err := os.Create(logfilename)
+	if err != nil {
+		return nil
+	}
+
+	l.file = append(l.file, logfilename)
+	if len(l.file) > l.fcount {
+		oldestfile := l.file[0]
+		os.Remove(oldestfile)
+		l.file = l.file[1:]
+	}
+
+	return file
 }
 
 // New creates a new Logger.   The out variable sets the
@@ -61,7 +161,7 @@ type Logger struct {
 // The prefix appears at the beginning of each generated log line.
 // The flag argument defines the logging properties.
 func New(out io.Writer, prefix string, flag int) *Logger {
-	return &Logger{out: out, prefix: prefix + " ", flag: flag, Level: Linfo}
+	return &Logger{out: out, prefix: prefix + " ", flag: flag, level: Linfo}
 }
 
 var std = New(os.Stdout, "", LstdFlags)
@@ -146,7 +246,7 @@ func (l *Logger) formatHeader(buf *[]byte, t time.Time, lvl int, file string, li
 		}
 	}
 	if l.flag&Llevel != 0 {
-		*buf = append(*buf, levels[lvl]...)
+		*buf = append(*buf, levels[lvl%Lmax]...)
 		*buf = append(*buf, ' ')
 	}
 }
@@ -158,7 +258,7 @@ func (l *Logger) formatHeader(buf *[]byte, t time.Time, lvl int, file string, li
 // provided for generality, although at the moment on all pre-defined
 // paths it will be 2.
 func (l *Logger) Output(lvl int, s string) error {
-	if lvl < l.Level {
+	if lvl < l.level {
 		return nil
 	}
 	calldepth := 2
@@ -183,11 +283,28 @@ func (l *Logger) Output(lvl int, s string) error {
 	l.buf = append(l.buf, s...)
 	l.buf = append(l.buf, '\n')
 	_, err := l.out.Write(l.buf)
-	return err
-}
+	if err != nil {
+		return err
+	}
+	if l.bmulti {
 
-func (l *Logger) Log(lvl int, format string, v ...interface{}) {
-	l.Output(lvl, fmt.Sprintf(format, v...))
+		if fd, ok := l.out.(*os.File); ok {
+			if fs, err := fd.Stat(); err == nil {
+				if fs.Size() > int64(l.fmaxsize) {
+					if newwrter := l.createIo(); newwrter != nil {
+						fd.Close()
+						return nil
+					}
+
+				}
+			} else {
+				return err
+			}
+
+		}
+	}
+
+	return err
 }
 
 // Printf calls l.Output to print to the logger.
@@ -271,6 +388,20 @@ func (l *Logger) SetPrefix(prefix string) {
 	l.prefix = prefix
 }
 
+func (l *Logger) Level() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.level
+}
+func (l *Logger) SetLevel(lvl int) (old int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	old = l.level
+	l.level = lvl
+	return
+}
+
 // SetOutput sets the output destination for the standard logger.
 func SetOutput(w io.Writer) {
 	std.mu.Lock()
@@ -302,6 +433,7 @@ func SetPrefix(prefix string) {
 
 // Print calls Output to print to the standard logger.
 // Arguments are handled in the manner of fmt.Print.
+
 func Print(v ...interface{}) {
 	std.Output(Linfo, fmt.Sprint(v...))
 }
@@ -355,4 +487,11 @@ func Panicln(v ...interface{}) {
 	s := fmt.Sprintln(v...)
 	std.Output(Lpanic, s)
 	panic(s)
+}
+func Level() int {
+	return std.Level()
+}
+func SetLevel(lvl int) (old int) {
+	old = std.SetLevel(lvl)
+	return
 }
