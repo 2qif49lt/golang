@@ -16,14 +16,14 @@ const (
 	// order they appear (the order listed here) or the format they present (as
 	// described in the comments).  A colon appears after these items:
 	//	2009/01/23 01:23:23.123123 /a/b/c/d.go:23: message
-	Ldate         = 1 << iota     // the date: 2009/01/23
-	Ltime                         // the time: 01:23:23
-	Lmicroseconds                 // microsecond resolution: 01:23:23.123123.  assumes Ltime.
-	Llongfile                     // full file name and line number: /a/b/c/d.go:23
-	Lshortfile                    // final file name element and line number: d.go:23. overrides Llongfile
-	Lmodule                       // module name
-	Llevel                        // level: 0(Debug), 1(Info), 2(Warn), 3(Error), 4(Panic), 5(Fatal)
-	LstdFlags     = Ldate | Ltime // initial values for the standard logger
+	Ldate         = 1 << iota              // the date: 2009/01/23
+	Ltime                                  // the time: 01:23:23
+	Lmicroseconds                          // microsecond resolution: 01:23:23.123123.  assumes Ltime.
+	Llongfile                              // full file name and line number: /a/b/c/d.go:23
+	Lshortfile                             // final file name element and line number: d.go:23. overrides Llongfile
+	Lmodule                                // module name
+	Llevel                                 // level: 0(Debug), 1(Info), 2(Warn), 3(Error), 4(Panic), 5(Fatal)
+	LstdFlags     = Ldate | Ltime | Llevel // initial values for the standard logger
 	Ldefault      = Lmodule | Llevel | Lshortfile | LstdFlags
 )
 const (
@@ -99,7 +99,6 @@ func getProcAbsDir() (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	Println(abs)
 	return filepath.Dir(abs), nil
 }
 func isPathExist(path string) bool {
@@ -113,7 +112,6 @@ func getTimeStr() string {
 	year, month, day := t.Date()
 	hour, minute, second := t.Clock()
 	str := fmt.Sprintf("%04d%02d%02d%02d%02d%02d", year, month, day, hour, minute, second)
-	Println(str)
 	return str
 }
 func (l *Logger) createIo() io.Writer {
@@ -121,9 +119,13 @@ func (l *Logger) createIo() io.Writer {
 	if err != nil {
 		return nil
 	}
-	timestr := getTimeStr()
+	procfolder = "c:/"
 
+	timestr := getTimeStr()
 	logfolder := fmt.Sprintf("%s/%s/%s", procfolder, l.folder, timestr)
+	if len(l.file) > 0 {
+		logfolder = filepath.Dir(l.file[0])
+	}
 
 	if isPathExist(logfolder) == false {
 		if os.MkdirAll(logfolder, os.ModeDir) != nil {
@@ -154,6 +156,10 @@ func (l *Logger) createIo() io.Writer {
 	}
 
 	return file
+}
+func (l *Logger) SetFile(count, size int) {
+	l.fcount = count
+	l.fmaxsize = size
 }
 
 // New creates a new Logger.   The out variable sets the
@@ -293,6 +299,7 @@ func (l *Logger) Output(lvl int, s string) error {
 				if fs.Size() > int64(l.fmaxsize) {
 					if newwrter := l.createIo(); newwrter != nil {
 						fd.Close()
+						l.out = newwrter
 						return nil
 					}
 

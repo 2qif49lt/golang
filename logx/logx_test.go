@@ -23,3 +23,23 @@ func TestLog(t *testing.T) {
 		l.Log(i%Lmax, "%d", i)
 	}
 }
+
+func TestAutoDel(t *testing.T) {
+	l := Newx("log", "multi.log", Ldebug)
+	if l == nil {
+		t.Error("l is nil")
+	}
+
+	l.SetFile(5, 1024*1024*5)
+
+	for i := 0; i < 1000*1000; i++ {
+		l.Log(i%Lmax, "%d", i)
+	}
+}
+
+func TestConsole(t *testing.T) {
+	SetLevel(Ldebug)
+	for i := 0; i < 1000*1000; i++ {
+		Log(i%Lmax, "%d", i)
+	}
+}
