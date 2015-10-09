@@ -19,7 +19,6 @@ type Handler interface {
 type defaultHandler struct{}
 
 func (def *defaultHandler) Dofile(fpath string) error {
-	fmt.Println("handler do", fpath)
 	lr, err := os.Open(fpath)
 	if err != nil {
 		return err
@@ -40,6 +39,7 @@ func (def *defaultHandler) Dofile(fpath string) error {
 
 	_, err = io.Copy(zf, lr)
 	if err != nil {
+		w.Close()
 		return err
 	}
 
@@ -162,7 +162,7 @@ func (l *Logger) createIo() io.Writer {
 	if err != nil {
 		return nil
 	}
-	procfolder = "c:/"
+	//	procfolder = "c:/"
 
 	timestr := getTimeStr()
 	logfolder := fmt.Sprintf("%s/%s/%s", procfolder, l.folder, timestr)
