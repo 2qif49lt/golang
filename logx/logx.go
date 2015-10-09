@@ -23,7 +23,11 @@ func (def *defaultHandler) Dofile(fpath string) error {
 	if err != nil {
 		return err
 	}
-	defer lr.Close()
+	defer func() {
+		if lr != nil {
+			lr.Close()
+		}
+	}()
 
 	fw, err := os.Create(fpath + ".zip")
 	if err != nil {
@@ -47,7 +51,9 @@ func (def *defaultHandler) Dofile(fpath string) error {
 	if err != nil {
 		return err
 	}
-	return nil
+	lr.Close()
+	lr = nil
+	return os.Remove(fpath)
 }
 
 var defhandler *defaultHandler = &defaultHandler{}
@@ -195,9 +201,11 @@ func (l *Logger) createIo() io.Writer {
 	if len(l.file) > l.fcount {
 		oldestfile := l.file[0]
 		if l.hander != nil {
-			l.hander.Dofile(oldestfile)
+			go func(path string) {
+				l.hander.Dofile(path)
+			}(oldestfile)
 		}
-		os.Remove(oldestfile)
+
 		l.file = l.file[1:]
 	}
 
@@ -206,6 +214,9 @@ func (l *Logger) createIo() io.Writer {
 func (l *Logger) SetFile(count, size int) {
 	l.fcount = count
 	l.fmaxsize = size
+}
+func (l *Logger) SetHandler(hander Handler) {
+	l.hander = hander
 }
 
 // New creates a new Logger.   The out variable sets the
