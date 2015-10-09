@@ -15,17 +15,17 @@ func TestGetTimeStr(t *testing.T) {
 }
 
 func TestLog(t *testing.T) {
-	l := Newx("log", "base.log", Linfo)
+	l := NewLog("log", "base.log", Linfo)
 	if l == nil {
 		t.Error("l is nil")
 	}
-	for i := 0; i < 1000*1000; i++ {
+	for i := 0; i < 10000*1000; i++ {
 		l.Log(i%Lmax, "%d", i)
 	}
 }
 
 func TestAutoDel(t *testing.T) {
-	l := Newx("log", "multi.log", Ldebug)
+	l := NewLog("log", "multi.log", Ldebug)
 	if l == nil {
 		t.Error("l is nil")
 	}

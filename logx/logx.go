@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,46 @@ import (
 	"sync"
 	"time"
 )
+
+type Handler interface {
+	Dofile(fpath string) error
+}
+
+type defaultHandler struct{}
+
+func (def *defaultHandler) Dofile(fpath string) error {
+	fmt.Println("handler do", fpath)
+	lr, err := os.Open(fpath)
+	if err != nil {
+		return err
+	}
+	defer lr.Close()
+
+	fw, err := os.Create(fpath + ".zip")
+	if err != nil {
+		return err
+	}
+	defer fw.Close()
+
+	w := zip.NewWriter(fw)
+	zf, err := w.Create(filepath.Base(fpath))
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(zf, lr)
+	if err != nil {
+		return err
+	}
+
+	err = w.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+var defhandler *defaultHandler = &defaultHandler{}
 
 const (
 	// Bits or'ed together to control what's printed. There is no control over the
@@ -24,7 +65,7 @@ const (
 	Lmodule                                // module name
 	Llevel                                 // level: 0(Debug), 1(Info), 2(Warn), 3(Error), 4(Panic), 5(Fatal)
 	LstdFlags     = Ldate | Ltime | Llevel // initial values for the standard logger
-	Ldefault      = Lmodule | Llevel | Lshortfile | LstdFlags
+	Ldefault      = Llevel | LstdFlags
 )
 const (
 	Ldebug = iota
@@ -67,9 +108,10 @@ type Logger struct {
 	file     []string // 文件列表
 	folder   string
 	name     string
+	hander   Handler // 文件处理
 }
 
-func Newx(folder string, name string, lvl int) *Logger {
+func NewLog(folder string, name string, lvl int) *Logger {
 	l := &Logger{
 		out:      nil,
 		flag:     Ldefault,
@@ -79,6 +121,7 @@ func Newx(folder string, name string, lvl int) *Logger {
 		fmaxsize: defmaxfilesize,
 		folder:   folder,
 		name:     name,
+		hander:   defhandler,
 	}
 	wrter := l.createIo()
 	if wrter == nil {
@@ -151,6 +194,9 @@ func (l *Logger) createIo() io.Writer {
 	l.file = append(l.file, logfilename)
 	if len(l.file) > l.fcount {
 		oldestfile := l.file[0]
+		if l.hander != nil {
+			l.hander.Dofile(oldestfile)
+		}
 		os.Remove(oldestfile)
 		l.file = l.file[1:]
 	}
