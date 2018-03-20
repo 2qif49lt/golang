@@ -36,7 +36,7 @@ func (s *Srv) netpack(cmd int, body []byte) ([]byte, error) {
 
 	buff := make([]byte, sizeheader+len(body))
 	phead := (*cmdheader)(unsafe.Pointer(&buff[0]))
-	phead.cmd = 1
+	phead.cmd = uint32(cmd)
 	phead.size = uint32(sizeheader + len(body))
 	copy(buff[sizeheader:], body)
 	return buff[:phead.size], nil
